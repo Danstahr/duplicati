@@ -279,9 +279,74 @@ namespace Duplicati.Library.Main.Database
                 var insertBlocksetEntriesCommand =
                     @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"", ""Offset"") " + selectFiltered;
 
+                // TODO(danstahr): This is a hacky way to make recreation (which is not the main focus currently) work. Implement properly!
                 try
                 {
-                    cmd.ExecuteNonQuery(insertBlocksetEntriesCommand);
+                    using (var txn = m_connection.BeginTransaction())
+                    using (var selectCommand = m_connection.CreateCommand())
+                    using (var updateCommand = m_connection.CreateCommand())
+                    {
+                        cmd.Transaction = txn;
+                        cmd.ExecuteNonQuery(insertBlocksetEntriesCommand);
+
+                        // The where clause is needed to move on otherwise we keep updating the same entry forever.
+                        selectCommand.CommandText = @"
+                            SELECT 
+                                ""BlocksetEntry"".""BlocksetId"",
+                                ""BlocksetEntry"".""BlockId"",
+                                ""BlocksetEntry"".""Index"",
+                                ""Block"".""Size""
+                            FROM ""BlocksetEntry""
+                            LEFT JOIN ""Block""
+                                ON ""BlocksetEntry"".""BlockID"" = ""Block"".""ID""
+                            WHERE ""BlocksetEntry"".""Offset"" = -1
+                            ORDER BY ""BlocksetEntry"".""BlocksetId"", ""BlocksetEntry"".""Index"" ";
+                        selectCommand.Transaction = txn;
+                        
+                        updateCommand.CommandText = @"
+                            UPDATE ""BlocksetEntry"" SET ""Offset"" = ? WHERE ""BlocksetId"" = ? AND ""BlockId"" = ? AND ""Index"" = ?";
+                        updateCommand.AddParameters(4);
+
+                        using (var reader = selectCommand.ExecuteReader())
+                        {
+                            bool first = true;
+                            long lastBlocksetId = -1;
+                            long offset = 0;
+
+                            while (reader.Read())
+                            {
+                                long blocksetId = reader.GetInt64(0);
+                                long blockId = reader.GetInt64(1);
+                                long index = reader.GetInt64(2);
+                                long blockSize = reader.GetInt64(3);
+
+                                if (first)
+                                {
+                                    lastBlocksetId = blocksetId;
+                                    first = false;
+                                }
+
+                                if (lastBlocksetId != blocksetId)
+                                {
+                                    lastBlocksetId = blocksetId;
+                                    offset = 0;
+                                }
+
+                                updateCommand.Transaction = txn;
+
+                                updateCommand.SetParameterValue(0, offset);
+                                updateCommand.SetParameterValue(1, blocksetId);
+                                updateCommand.SetParameterValue(2, blockId);
+                                updateCommand.SetParameterValue(3, index);
+
+                                updateCommand.ExecuteNonQuery();
+
+                                offset += blockSize;
+                            }                            
+                        }
+
+                        txn.Commit();
+                    }
                 }
                 catch (Exception ex)
                 {

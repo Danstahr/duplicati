@@ -201,12 +201,27 @@ namespace Duplicati.Library.Main.Database
     
                     cmd.ExecuteNonQuery(string.Format(@"DROP TABLE IF EXISTS ""{0}"" ", m_tempfiletable));
                     cmd.ExecuteNonQuery(string.Format(@"DROP TABLE IF EXISTS ""{0}"" ", m_tempblocktable));
-                    cmd.ExecuteNonQuery(string.Format(@"CREATE TEMPORARY TABLE ""{0}"" (""ID"" INTEGER PRIMARY KEY, ""Path"" TEXT NOT NULL, ""BlocksetID"" INTEGER NOT NULL, ""MetadataID"" INTEGER NOT NULL, ""TargetPath"" TEXT NULL, ""DataVerified"" BOOLEAN NOT NULL) ", m_tempfiletable));
-                    cmd.ExecuteNonQuery(string.Format(@"CREATE TEMPORARY TABLE ""{0}"" (""ID"" INTEGER PRIMARY KEY, ""FileID"" INTEGER NOT NULL, ""Index"" INTEGER NOT NULL, ""Hash"" TEXT NOT NULL, ""Size"" INTEGER NOT NULL, ""Restored"" BOOLEAN NOT NULL, ""Metadata"" BOOLEAN NOT NULL)", m_tempblocktable));
+                    cmd.ExecuteNonQuery(
+                        string.Format(@"
+                            CREATE TEMPORARY TABLE ""{0}"" (
+                                ""ID"" INTEGER PRIMARY KEY, 
+                                ""Path"" TEXT NOT NULL, 
+                                ""BlocksetID"" INTEGER NOT NULL, 
+                                ""MetadataID"" INTEGER NOT NULL, 
+                                ""TargetPath"" TEXT NULL, 
+                                ""DataVerified"" BOOLEAN NOT NULL) ", m_tempfiletable));
+                    cmd.ExecuteNonQuery(
+                        string.Format(@"
+                            CREATE TEMPORARY TABLE ""{0}"" (
+                                ""ID"" INTEGER PRIMARY KEY, 
+                                ""FileID"" INTEGER NOT NULL, 
+                                ""Index"" INTEGER NOT NULL, 
+                                ""Offset"" INTEGER NOT NULL,
+                                ""Hash"" TEXT NOT NULL, ""Size"" INTEGER NOT NULL, ""Restored"" BOOLEAN NOT NULL, ""Metadata"" BOOLEAN NOT NULL)", m_tempblocktable));
                     cmd.ExecuteNonQuery(string.Format(@"CREATE INDEX ""{0}_Index"" ON ""{0}"" (""TargetPath"")", m_tempfiletable));
                     cmd.ExecuteNonQuery(string.Format(@"CREATE INDEX ""{0}_HashSizeIndex"" ON ""{0}"" (""Hash"", ""Size"")", m_tempblocktable));
                     // better suited to speed up commit on UpdateBlocks
-                    cmd.ExecuteNonQuery(string.Format(@"CREATE INDEX ""{0}_FileIdIndexIndex"" ON ""{0}"" (""FileId"", ""Index"")", m_tempblocktable));
+                    cmd.ExecuteNonQuery(string.Format(@"CREATE INDEX ""{0}_FileIdIndexIndex"" ON ""{0}"" (""FileId"", ""Index"", ""Offset"")", m_tempblocktable));
 
                     if (filter == null || filter.Empty)
                     {
@@ -444,13 +459,49 @@ namespace Duplicati.Library.Main.Database
         {
             using(var cmd = m_connection.CreateCommand())
             {
-                cmd.CommandText = string.Format(@"INSERT INTO ""{0}"" (""FileID"", ""Index"", ""Hash"", ""Size"", ""Restored"", ""Metadata"") SELECT DISTINCT ""{1}"".""ID"", ""BlocksetEntry"".""Index"", ""Block"".""Hash"", ""Block"".""Size"", 0, 0 FROM ""{1}"", ""BlocksetEntry"", ""Block"" WHERE ""{1}"".""BlocksetID"" = ""BlocksetEntry"".""BlocksetID"" AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" ", m_tempblocktable, m_tempfiletable);
+                cmd.CommandText = string.Format(@"
+                    INSERT INTO ""{0}"" (""FileID"", ""Index"", ""Offset"", ""Hash"", ""Size"", ""Restored"", ""Metadata"") 
+                    SELECT DISTINCT 
+                        ""{1}"".""ID"", 
+                        ""BlocksetEntry"".""Index"", 
+                        ""BlocksetEntry"".""Offset"",
+                        ""Block"".""Hash"", 
+                        ""Block"".""Size"", 
+                        0, 
+                        0 
+                    FROM 
+                        ""{1}"", 
+                        ""BlocksetEntry"", 
+                        ""Block"" 
+                    WHERE 
+                        ""{1}"".""BlocksetID"" = ""BlocksetEntry"".""BlocksetID"" 
+                        AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" ",
+                    m_tempblocktable, m_tempfiletable);
                 var p1 = cmd.ExecuteNonQuery();
 
                 int p2 = 0;
                 if (!skipMetadata)
                 {
-                    cmd.CommandText = string.Format(@"INSERT INTO ""{0}"" (""FileID"", ""Index"", ""Hash"", ""Size"", ""Restored"", ""Metadata"") SELECT DISTINCT ""{1}"".""ID"", ""BlocksetEntry"".""Index"", ""Block"".""Hash"", ""Block"".""Size"", 0, 1 FROM ""{1}"", ""BlocksetEntry"", ""Block"", ""Metadataset"" WHERE ""{1}"".""MetadataID"" = ""Metadataset"".""ID"" AND ""Metadataset"".""BlocksetID"" = ""BlocksetEntry"".""BlocksetID"" AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" ", m_tempblocktable, m_tempfiletable);
+                    cmd.CommandText = string.Format(@"
+                        INSERT INTO ""{0}"" (""FileID"", ""Index"", ""Offset"", ""Hash"", ""Size"", ""Restored"", ""Metadata"")
+                        SELECT DISTINCT 
+                            ""{1}"".""ID"", 
+                            ""BlocksetEntry"".""Index"", 
+                            ""BlocksetEntry"".""Offset"",
+                            ""Block"".""Hash"", 
+                            ""Block"".""Size"", 
+                            0, 
+                            1 
+                        FROM 
+                            ""{1}"", 
+                            ""BlocksetEntry"", 
+                            ""Block"", 
+                            ""Metadataset"" 
+                        WHERE 
+                            ""{1}"".""MetadataID"" = ""Metadataset"".""ID"" 
+                            AND ""Metadataset"".""BlocksetID"" = ""BlocksetEntry"".""BlocksetID"" 
+                            AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" ",
+                    m_tempblocktable, m_tempfiletable);
                     p2 = cmd.ExecuteNonQuery();
                 }
 
@@ -573,7 +624,28 @@ namespace Duplicati.Library.Main.Database
             {
                 using(var cmd = connection.CreateCommand())
                 {
-                    cmd.CommandText = string.Format(@"SELECT ""{0}"".""TargetPath"", ""Blockset"".""FullHash"", ""{0}"".""ID"", ""Blockset"".""Length"", ""Block"".""Hash"", ""BlocksetEntry"".""Index"", ""Block"".""Size"" FROM ""{0}"", ""Blockset"", ""BlocksetEntry"", ""Block"" WHERE ""{0}"".""BlocksetID"" = ""Blockset"".""ID"" AND ""BlocksetEntry"".""BlocksetID"" = ""{0}"".""BlocksetID"" AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" ORDER BY ""{0}"".""TargetPath"", ""BlocksetEntry"".""Index""", tablename);
+                    // TODO(danstahr): offset
+                    cmd.CommandText = string.Format(@"
+                        SELECT 
+                            ""{0}"".""TargetPath"", 
+                            ""Blockset"".""FullHash"", 
+                            ""{0}"".""ID"", 
+                            ""Blockset"".""Length"", 
+                            ""Block"".""Hash"", 
+                            ""BlocksetEntry"".""Index"", 
+                            ""Block"".""Size"" 
+                        FROM 
+                            ""{0}"", 
+                            ""Blockset"", 
+                            ""BlocksetEntry"", 
+                            ""Block"" 
+                        WHERE 
+                            ""{0}"".""BlocksetID"" = ""Blockset"".""ID"" 
+                            AND ""BlocksetEntry"".""BlocksetID"" = ""{0}"".""BlocksetID"" 
+                            AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" 
+                        ORDER BY ""{0}"".""TargetPath"", ""BlocksetEntry"".""Offset""", 
+                        tablename);
+
                     using(var rd = cmd.ExecuteReader())
                         if (rd.Read())
                         {
@@ -671,12 +743,37 @@ namespace Duplicati.Library.Main.Database
                 }
             }
 
-            public static IEnumerable<ILocalBlockSource> GetFilesAndSourceBlocks(System.Data.IDbConnection connection, string filetablename, string blocktablename, long blocksize, bool skipMetadata)
+            public static IEnumerable<ILocalBlockSource> GetFilesAndSourceBlocks(System.Data.IDbConnection connection, string filetablename, string blocktablename, bool skipMetadata)
             {
                 using(var cmd = connection.CreateCommand())
                 {
                     // TODO: Skip metadata as required
-                    cmd.CommandText = string.Format(@"SELECT DISTINCT ""A"".""TargetPath"", ""A"".""ID"", ""B"".""Hash"", (""B"".""Index"" * {2}), ""B"".""Index"", ""B"".""Size"", ""C"".""Path"", (""D"".""Index"" * {2}), ""E"".""Size"", ""B"".""Metadata"" FROM ""{0}"" ""A"", ""{1}"" ""B"", ""File"" ""C"", ""BlocksetEntry"" ""D"", ""Block"" E WHERE ""A"".""ID"" = ""B"".""FileID"" AND ""C"".""BlocksetID"" = ""D"".""BlocksetID"" AND ""D"".""BlockID"" = ""E"".""ID"" AND ""B"".""Hash"" = ""E"".""Hash"" AND ""B"".""Size"" = ""E"".""Size"" AND ""B"".""Restored"" = 0", filetablename, blocktablename, blocksize);
+                    cmd.CommandText = string.Format(@"
+                        SELECT DISTINCT 
+                            ""A"".""TargetPath"", 
+                            ""A"".""ID"", 
+                            ""B"".""Hash"", 
+                            ""B"".""Offset"",
+                            ""B"".""Index"", 
+                            ""B"".""Size"", 
+                            ""C"".""Path"", 
+                            ""D"".""Offset"", 
+                            ""E"".""Size"", 
+                            ""B"".""Metadata"" 
+                        FROM 
+                            ""{0}"" ""A"", 
+                            ""{1}"" ""B"", 
+                            ""File"" ""C"", 
+                            ""BlocksetEntry"" ""D"", 
+                            ""Block"" E 
+                        WHERE 
+                            ""A"".""ID"" = ""B"".""FileID"" 
+                            AND ""C"".""BlocksetID"" = ""D"".""BlocksetID"" 
+                            AND ""D"".""BlockID"" = ""E"".""ID"" 
+                            AND ""B"".""Hash"" = ""E"".""Hash"" 
+                            AND ""B"".""Size"" = ""E"".""Size"" 
+                            AND ""B"".""Restored"" = 0", 
+                        filetablename, blocktablename);
                     using(var rd = cmd.ExecuteReader())
                     {
                         if (rd.Read())
@@ -698,9 +795,9 @@ namespace Duplicati.Library.Main.Database
             }
         }
 
-        public IEnumerable<ILocalBlockSource> GetFilesAndSourceBlocks(bool skipMetadata, long blocksize)
+        public IEnumerable<ILocalBlockSource> GetFilesAndSourceBlocks(bool skipMetadata)
         {
-            return LocalBlockSource.GetFilesAndSourceBlocks(m_connection, m_tempfiletable, m_tempblocktable, blocksize, skipMetadata);
+            return LocalBlockSource.GetFilesAndSourceBlocks(m_connection, m_tempfiletable, m_tempblocktable, skipMetadata);
         }
 
         public IEnumerable<IRemoteVolume> GetMissingVolumes()
@@ -712,22 +809,21 @@ namespace Duplicati.Library.Main.Database
                 // If we manage to get the volumes in an order restoring front blocks first, this can save time.
                 // An optimal algorithm would build a depency net with cycle resolution to find the best near topological
                 // order of volumes, but this is a bit too fancy here.
-                // We will just put a very simlpe heuristic to work, that will try to prefer volumes containing lower block indexes:
+                // We will just put a very simlpe heuristic to work, that will try to prefer volumes containing lower block offsets:
                 // We just order all volumes by the maximum block index they contain. This query is slow, but should be worth the effort.
                 // Now it is likely to restore all files from front to back. Large files will always be done last.
                 // One could also use like the average block number in a volume, that needs to be measured.
-
                 cmd.CommandText = string.Format(
-                      @"SELECT ""RV"".""Name"", ""RV"".""Hash"", ""RV"".""Size"", ""BB"".""MaxIndex"" "
+                      @"SELECT ""RV"".""Name"", ""RV"".""Hash"", ""RV"".""Size"", ""BB"".""MaxOffset"" "
                     + @"  FROM ""RemoteVolume"" ""RV"" INNER JOIN "
-                    + @"        (SELECT ""B"".""VolumeID"", MAX(""TB"".""Index"") as ""MaxIndex"" "
+                    + @"        (SELECT ""B"".""VolumeID"", MAX(""TB"".""Offset"") as ""MaxOffset"" "
                     + @"           FROM ""Block"" ""B"", ""{0}"" ""TB"" "
                     + @"          WHERE ""TB"".""Restored"" = 0 "
                     + @"            AND ""B"".""Hash"" = ""TB"".""Hash"" "
                     + @"            AND ""B"".""Size"" = ""TB"".""Size"" "
                     + @"          GROUP BY  ""B"".""VolumeID"" "
                     + @"        ) as ""BB"" ON ""RV"".""ID"" = ""BB"".""VolumeID"" "
-                    + @"  ORDER BY ""BB"".""MaxIndex"" "
+                    + @"  ORDER BY ""BB"".""MaxOffset"" "
                     , m_tempblocktable);
 
                 using (var rd = cmd.ExecuteReader())
@@ -757,15 +853,13 @@ namespace Duplicati.Library.Main.Database
             private string m_tmptable;
             private string m_filetablename;
             private string m_blocktablename;
-            private long m_blocksize;
 
             private System.Data.IDbConnection m_connection;
 
-            public FilesAndMetadata(System.Data.IDbConnection connection, string filetablename, string blocktablename, long blocksize, BlockVolumeReader curvolume)
+            public FilesAndMetadata(System.Data.IDbConnection connection, string filetablename, string blocktablename, BlockVolumeReader curvolume)
             {
                 m_filetablename = filetablename;
                 m_blocktablename = blocktablename;
-                m_blocksize = blocksize;
                 m_connection = connection;
 
                 using (var c = m_connection.CreateCommand())
@@ -804,9 +898,17 @@ namespace Duplicati.Library.Main.Database
                 private class PatchBlock : IPatchBlock
                 {
                     private System.Data.IDataReader m_reader;
-                    public PatchBlock(System.Data.IDataReader rd) { m_reader = rd; }
+                    public PatchBlock(System.Data.IDataReader rd) {
+                        m_reader = rd;
+                    }
 
-                    public long Offset { get { return m_reader.ConvertValueToInt64(2); } }
+                    public long Offset
+                    {
+                        get
+                        {
+                            return m_reader.ConvertValueToInt64(2);
+                        }
+                    }
                     public long Size { get { return m_reader.ConvertValueToInt64(3); } }
                     public string Key { get { return m_reader.ConvertValueToString(4); } }
                 }
@@ -840,12 +942,12 @@ namespace Duplicati.Library.Main.Database
                     {
                         // The IN-clause with subquery enables SQLite to use indexes better. Three way join (A,B,C) is slow here!
                         cmd.CommandText = string.Format(
-                            @"  SELECT DISTINCT ""A"".""TargetPath"", ""BB"".""FileID"", (""BB"".""Index"" * {3}), ""BB"".""Size"", ""BB"".""Hash"" "
+                            @"  SELECT DISTINCT ""A"".""TargetPath"", ""BB"".""FileID"", ""BB"".""Offset"", ""BB"".""Size"", ""BB"".""Hash"" "
                             + @"  FROM ""{0}"" ""A"", ""{1}"" ""BB"" "
-                            + @" WHERE ""A"".""ID"" = ""BB"".""FileID"" AND ""BB"".""Restored"" = 0 AND ""BB"".""Metadata"" = {4}"
+                            + @" WHERE ""A"".""ID"" = ""BB"".""FileID"" AND ""BB"".""Restored"" = 0 AND ""BB"".""Metadata"" = {3}"
                             + @"   AND ""BB"".""ID"" IN  (SELECT ""B"".""ID"" FROM ""{1}"" ""B"", ""{2}"" ""C"" WHERE ""B"".""Hash"" = ""C"".""Hash"" AND ""B"".""Size"" = ""C"".""Size"") "
-                            + @" ORDER BY ""A"".""TargetPath"", ""BB"".""Index"""
-                            , m_filetablename, m_blocktablename, m_tmptable, m_blocksize, "0");
+                            + @" ORDER BY ""A"".""TargetPath"", ""BB"".""Offset"""
+                            , m_filetablename, m_blocktablename, m_tmptable, "0");
                         using(var rd = cmd.ExecuteReader())
                         {
                             if (rd.Read())
@@ -875,12 +977,12 @@ namespace Duplicati.Library.Main.Database
                     {
                         // The IN-clause with subquery enables SQLite to use indexes better. Three way join (A,B,C) is slow here!
                         cmd.CommandText = string.Format(
-                            @"  SELECT DISTINCT ""A"".""TargetPath"", ""BB"".""FileID"", (""BB"".""Index"" * {3}), ""BB"".""Size"", ""BB"".""Hash"" "
+                            @"  SELECT DISTINCT ""A"".""TargetPath"", ""BB"".""FileID"", ""BB"".""Offset"", ""BB"".""Size"", ""BB"".""Hash"" "
                             + @"  FROM ""{0}"" ""A"", ""{1}"" ""BB"" "
-                            + @" WHERE ""A"".""ID"" = ""BB"".""FileID"" AND ""BB"".""Restored"" = 0 AND ""BB"".""Metadata"" = {4}"
+                            + @" WHERE ""A"".""ID"" = ""BB"".""FileID"" AND ""BB"".""Restored"" = 0 AND ""BB"".""Metadata"" = {3}"
                             + @"   AND ""BB"".""ID"" IN  (SELECT ""B"".""ID"" FROM ""{1}"" ""B"", ""{2}"" ""C"" WHERE ""B"".""Hash"" = ""C"".""Hash"" AND ""B"".""Size"" = ""C"".""Size"") "
-                            + @" ORDER BY ""A"".""TargetPath"", ""BB"".""Index"""
-                            , m_filetablename, m_blocktablename, m_tmptable, m_blocksize, "1");
+                            + @" ORDER BY ""A"".""TargetPath"", ""BB"".""Offset"""
+                            , m_filetablename, m_blocktablename, m_tmptable, "1");
                         using(var rd = cmd.ExecuteReader())
                         {
                             if (rd.Read())
@@ -905,9 +1007,9 @@ namespace Duplicati.Library.Main.Database
             public string Tablename { get { return m_tmptable; } }
         }
 
-        public IFilesAndMetadata GetMissingBlockData(BlockVolumeReader curvolume, long blocksize)
+        public IFilesAndMetadata GetMissingBlockData(BlockVolumeReader curvolume)
         {
-            return new FilesAndMetadata(m_connection, m_tempfiletable, m_tempblocktable, blocksize, curvolume);
+            return new FilesAndMetadata(m_connection, m_tempfiletable, m_tempblocktable, curvolume);
         }
 
         private class FileToRestore : IFileToRestore
@@ -1211,17 +1313,15 @@ namespace Duplicati.Library.Main.Database
             private class BlockEntry : IBlockEntry
             {
                 private System.Data.IDataReader m_rd;
-                private long m_blocksize;
-                public BlockEntry(System.Data.IDataReader rd, long blocksize) { m_rd = rd; m_blocksize = blocksize; }
-                public long Offset { get { return m_rd.GetInt64(3) * m_blocksize; } }
+                public BlockEntry(System.Data.IDataReader rd) { m_rd = rd; }
+                public long Offset { get { return m_rd.GetInt64(6); } }
                 public long Index { get { return m_rd.GetInt64(3); } }
                 public long Size { get { return m_rd.GetInt64(5); } }
                 public string Hash { get { return m_rd.GetString(4); } }
             }
         
             private System.Data.IDataReader m_rd;
-            private long m_blocksize;
-            public FastSource(System.Data.IDataReader rd, long blocksize) { m_rd = rd; m_blocksize = blocksize; MoreData = true; }
+            public FastSource(System.Data.IDataReader rd) { m_rd = rd; MoreData = true; } 
             public bool MoreData { get; private set; }
             public string TargetPath { get { return m_rd.GetValue(0).ToString(); } }
             public long TargetFileID { get { return m_rd.GetInt64(2); } }
@@ -1235,19 +1335,19 @@ namespace Duplicati.Library.Main.Database
                     
                     do
                     {
-                        yield return new BlockEntry(m_rd, m_blocksize);
+                        yield return new BlockEntry(m_rd);
                     } while((MoreData = m_rd.Read()) && tid == this.TargetFileID);
                     
                 }
             }
         }
 
-        public IEnumerable<IFastSource> GetFilesAndSourceBlocksFast(long blocksize)
+        public IEnumerable<IFastSource> GetFilesAndSourceBlocksFast()
         {
             var whereclause = string.Format(@" ""{0}"".""ID"" = ""{1}"".""FileID"" AND ""{1}"".""Restored"" = 0 AND ""{1}"".""Metadata"" = 0 AND ""{0}"".""TargetPath"" != ""{0}"".""Path"" ", m_tempfiletable, m_tempblocktable);        
             var sourepaths = string.Format(@"SELECT DISTINCT ""{0}"".""Path"" FROM ""{0}"", ""{1}"" WHERE " + whereclause, m_tempfiletable, m_tempblocktable);
             var latestBlocksetIds = @"SELECT ""File"".""Path"", ""File"".""BlocksetID"", MAX(""Fileset"".""Timestamp"") FROM ""Fileset"", ""FilesetEntry"", ""File"" WHERE ""FilesetEntry"".""FileID"" = ""File"".""ID"" AND ""FilesetEntry"".""FilesetID"" = ""Fileset"".""ID"" AND ""File"".""Path"" IN (" + sourepaths + @") GROUP BY ""File"".""Path"" ";
-            var sources = string.Format(@"SELECT DISTINCT ""{0}"".""TargetPath"", ""{0}"".""Path"", ""{0}"".""ID"", ""{1}"".""Index"", ""{1}"".""Hash"", ""{1}"".""Size"" FROM ""{0}"", ""{1}"", ""File"", (" + latestBlocksetIds + @") S, ""Block"", ""BlocksetEntry"" WHERE ""BlocksetEntry"".""BlocksetID"" = ""S"".""BlocksetID"" AND ""BlocksetEntry"".""BlocksetID"" = ""File"".""BlocksetID"" AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" AND ""{1}"".""Index"" = ""BlocksetEntry"".""Index"" AND ""{1}"".""Hash"" = ""Block"".""Hash"" AND ""{1}"".""Size"" = ""Block"".""Size"" AND ""S"".""Path"" = ""{0}"".""Path"" AND " + whereclause + @" ORDER BY ""{0}"".""ID"", ""{1}"".""Index"" ", m_tempfiletable, m_tempblocktable);
+            var sources = string.Format(@"SELECT DISTINCT ""{0}"".""TargetPath"", ""{0}"".""Path"", ""{0}"".""ID"", ""{1}"".""Index"", ""{1}"".""Hash"", ""{1}"".""Size"", ""{1}"".""Offset"" FROM ""{0}"", ""{1}"", ""File"", (" + latestBlocksetIds + @") S, ""Block"", ""BlocksetEntry"" WHERE ""BlocksetEntry"".""BlocksetID"" = ""S"".""BlocksetID"" AND ""BlocksetEntry"".""BlocksetID"" = ""File"".""BlocksetID"" AND ""BlocksetEntry"".""BlockID"" = ""Block"".""ID"" AND ""{1}"".""Offset"" = ""BlocksetEntry"".""Offset"" AND ""{1}"".""Hash"" = ""Block"".""Hash"" AND ""{1}"".""Size"" = ""Block"".""Size"" AND ""S"".""Path"" = ""{0}"".""Path"" AND " + whereclause + @" ORDER BY ""{0}"".""ID"", ""{1}"".""Offset"" ", m_tempfiletable, m_tempblocktable);
             using(var cmd = m_connection.CreateCommand())
             using(var rd = cmd.ExecuteReader(sources))
             {
@@ -1256,7 +1356,7 @@ namespace Duplicati.Library.Main.Database
                     var more = false;
                     do
                     {
-                        var n = new FastSource(rd, blocksize);
+                        var n = new FastSource(rd);
                         var tid = n.TargetFileID;
                         yield return n;
                         

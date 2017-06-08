@@ -197,7 +197,7 @@ namespace Duplicati.Library.Main.Operation
             var blockhasher = fullblockverification ? System.Security.Cryptography.HashAlgorithm.Create(options.BlockHashAlgorithm) : null;
 
             using (var blockmarker = database.CreateBlockMarker())
-            using(var volumekeeper = database.GetMissingBlockData(blocks, options.Blocksize))
+            using(var volumekeeper = database.GetMissingBlockData(blocks))
             {
                 foreach(var restorelist in volumekeeper.FilesWithMissingBlocks)
                 {
@@ -562,7 +562,7 @@ namespace Duplicati.Library.Main.Operation
             using (var blockmarker = database.CreateBlockMarker())
             {
                 var updateCount = 0L;
-                foreach(var entry in database.GetFilesAndSourceBlocksFast(options.Blocksize))
+                foreach(var entry in database.GetFilesAndSourceBlocksFast())
                 {
                     var targetpath = entry.TargetPath;
                     var targetfileid = entry.TargetFileID;
@@ -665,7 +665,7 @@ namespace Duplicati.Library.Main.Operation
             using (var blockmarker = database.CreateBlockMarker())
             {
                 var updateCount = 0L;
-                foreach (var restorelist in database.GetFilesAndSourceBlocks(options.SkipMetadata, options.Blocksize))
+                foreach (var restorelist in database.GetFilesAndSourceBlocks(options.SkipMetadata))
                 {
                     var targetpath = restorelist.TargetPath;
                     var targetfileid = restorelist.TargetFileID;

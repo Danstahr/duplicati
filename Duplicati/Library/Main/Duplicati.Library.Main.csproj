@@ -152,6 +152,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
+    <EmbeddedResource Include="Database\Database schema\7. Added absolute offset to BlocksetEntry table.sql" />
     <None Include="Duplicati.snk" />
     <None Include="packages.config" />
   </ItemGroup>

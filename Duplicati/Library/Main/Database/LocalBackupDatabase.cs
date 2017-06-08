@@ -71,7 +71,6 @@ namespace Duplicati.Library.Main.Database
         private readonly System.Data.IDbCommand m_insertfileCommand;
 
         private readonly System.Data.IDbCommand m_insertblocksetCommand;
-        private readonly System.Data.IDbCommand m_insertblocksetentryFastCommand;
         private readonly System.Data.IDbCommand m_insertblocksetentryCommand;
         private readonly System.Data.IDbCommand m_insertblocklistHashesCommand;
 
@@ -80,7 +79,6 @@ namespace Duplicati.Library.Main.Database
         private readonly System.Data.IDbCommand m_findfileCommand;
         private readonly System.Data.IDbCommand m_selectfilelastmodifiedCommand;
         private readonly System.Data.IDbCommand m_selectfileHashCommand;
-        private readonly System.Data.IDbCommand m_selectblocklistHashesCommand;
 
         private readonly System.Data.IDbCommand m_insertfileOperationCommand;
         
@@ -107,12 +105,10 @@ namespace Duplicati.Library.Main.Database
             m_findfilesetCommand = m_connection.CreateCommand();
             m_insertblocksetentryCommand = m_connection.CreateCommand();
             m_insertblocklistHashesCommand = m_connection.CreateCommand();
-            m_selectblocklistHashesCommand = m_connection.CreateCommand();
             m_insertfileOperationCommand = m_connection.CreateCommand();
             m_findfileCommand = m_connection.CreateCommand();
             m_selectfilelastmodifiedCommand = m_connection.CreateCommand();
             m_selectfileHashCommand = m_connection.CreateCommand();
-            m_insertblocksetentryFastCommand = m_connection.CreateCommand();
                 
             m_findblockCommand.CommandText = @"SELECT ""ID"" FROM ""Block"" WHERE ""Hash"" = ? AND ""Size"" = ?";
             m_findblockCommand.AddParameters(2);
@@ -138,11 +134,8 @@ namespace Duplicati.Library.Main.Database
             m_insertblocksetCommand.CommandText = @"INSERT INTO ""Blockset"" (""Length"", ""FullHash"") VALUES (?, ?); SELECT last_insert_rowid();";
             m_insertblocksetCommand.AddParameters(2);
 
-            m_insertblocksetentryFastCommand.CommandText = @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"") VALUES (?,?,?)";
-            m_insertblocksetentryFastCommand.AddParameters(3);
-
-            m_insertblocksetentryCommand.CommandText = @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"") SELECT ? AS A, ? AS B, ""ID"" FROM ""Block"" WHERE ""Hash"" = ? AND ""Size"" = ?";
-            m_insertblocksetentryCommand.AddParameters(4);
+            m_insertblocksetentryCommand.CommandText = @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"", ""Offset"") SELECT ? AS ""BlocksetId"", ? AS ""Index"", ""ID"", ? AS ""Offset"" FROM ""Block"" WHERE ""Hash"" = ? AND ""Size"" = ?";
+            m_insertblocksetentryCommand.AddParameters(5);
 
             m_insertblocklistHashesCommand.CommandText = @"INSERT INTO ""BlocklistHash"" (""BlocksetID"", ""Index"", ""Hash"") VALUES (?, ?, ?)";
             m_insertblocklistHashesCommand.AddParameters(3);
@@ -167,9 +160,6 @@ namespace Duplicati.Library.Main.Database
 
             m_selectfileHashCommand.CommandText = @"SELECT ""Blockset"".""Fullhash"" FROM ""Blockset"", ""File"" WHERE ""Blockset"".""ID"" = ""File"".""BlocksetID"" AND ""File"".""ID"" = ?  ";
             m_selectfileHashCommand.AddParameters(1);
-
-            m_selectblocklistHashesCommand.CommandText = @"SELECT ""Hash"" FROM ""BlocklistHash"" WHERE ""BlocksetID"" = ? ORDER BY ""Index"" ASC ";
-            m_selectblocklistHashesCommand.AddParameters(1);
         }
         
         /// <summary>
@@ -289,7 +279,14 @@ namespace Duplicati.Library.Main.Database
         /// <param name="hashes">The list of hashes</param>
         /// <param name="blocksetid">The id of the blockset, new or old</param>
         /// <returns>True if the blockset was created, false otherwise</returns>
-        public bool AddBlockset(string filehash, long size, int blocksize, IEnumerable<string> hashes, IEnumerable<string> blocklistHashes, out long blocksetid, System.Data.IDbTransaction transaction = null)
+        public bool AddBlockset(
+            string filehash, 
+            long size, 
+            int blocksize, 
+            IEnumerable<string> hashes, 
+            IEnumerable<string> blocklistHashes, 
+            out long blocksetid, 
+            System.Data.IDbTransaction transaction = null)
         {
             m_findblocksetCommand.Transaction = transaction;
             blocksetid = m_findblocksetCommand.ExecuteScalarInt64(null, -1, filehash, size);
@@ -320,17 +317,16 @@ namespace Duplicati.Library.Main.Database
                 m_insertblocksetentryCommand.SetParameterValue(0, blocksetid);
                 m_insertblocksetentryCommand.Transaction = tr.Parent;
 
-                m_insertblocksetentryFastCommand.SetParameterValue(0, blocksetid);
-                m_insertblocksetentryFastCommand.Transaction = tr.Parent;
-
                 ix = 0;
+                long offset = 0;
                 long remainsize = size;
                 foreach(var h in hashes)
                 {
                     var exsize = remainsize < blocksize ? remainsize : blocksize;
                     m_insertblocksetentryCommand.SetParameterValue(1, ix);
-                    m_insertblocksetentryCommand.SetParameterValue(2, h);
-                    m_insertblocksetentryCommand.SetParameterValue(3, exsize);
+                    m_insertblocksetentryCommand.SetParameterValue(2, offset);
+                    m_insertblocksetentryCommand.SetParameterValue(3, h);
+                    m_insertblocksetentryCommand.SetParameterValue(4, exsize);
                     var c = m_insertblocksetentryCommand.ExecuteNonQuery();
                     if (c != 1)
                     {
@@ -348,6 +344,7 @@ namespace Duplicati.Library.Main.Database
                     }
                     
                     ix++;
+                    offset += exsize;
                     remainsize -= blocksize;
                 }
 

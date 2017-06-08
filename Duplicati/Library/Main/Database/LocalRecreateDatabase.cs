@@ -233,15 +233,14 @@ namespace Duplicati.Library.Main.Database
                     
                 // Insert all known blocks into block table with volumeid = -1
                 cmd.ExecuteNonQuery(insertBlocksCommand);
-                    
-                var selectBlocklistBlocksetEntries = string.Format(
-                    @"SELECT ""E"".""BlocksetID"" AS ""BlocksetID"", ""D"".""FullIndex"" AS ""Index"", ""F"".""ID"" AS ""BlockID"" FROM ( " +
+
+                // TODO: The BlocklistHash join seems to be unnecessary, but the join might be required to work around a from really old versions of Duplicati
+                // this could be used instead
+                //@") D, ""Block"" WHERE  ""BlockQuery"".""BlockHash"" = ""Block"".""Hash"" AND ""BlockQuery"".""BlockSize"" = ""Block"".""Size"" ";
+
+                var selectBlocklistBlocksetEntries = string.Format(@"SELECT ""E"".""BlocksetID"" AS ""BlocksetID"", ""D"".""FullIndex"" AS ""Index"", ""F"".""ID"" AS ""BlockID"" FROM ( " +
                     SELECT_BLOCKLIST_ENTRIES +
                     @") D, ""BlocklistHash"" E, ""Block"" F, ""Block"" G WHERE ""D"".""BlocksetID"" = ""E"".""BlocksetID"" AND ""D"".""BlocklistHash"" = ""E"".""Hash"" AND ""D"".""BlocklistSize"" = ""G"".""Size"" AND ""D"".""BlocklistHash"" = ""G"".""Hash"" AND ""D"".""Blockhash"" = ""F"".""Hash"" AND ""D"".""BlockSize"" = ""F"".""Size"" ",
-
-                    // TODO: The BlocklistHash join seems to be unnecessary, but the join might be required to work around a from really old versions of Duplicati
-                    // this could be used instead
-                    //@") D, ""Block"" WHERE  ""BlockQuery"".""BlockHash"" = ""Block"".""Hash"" AND ""BlockQuery"".""BlockSize"" = ""Block"".""Size"" ";
 
                     blocksize,
                     hashsize,
@@ -249,24 +248,36 @@ namespace Duplicati.Library.Main.Database
                     blocksize / hashsize
                     );
 
-                var selectBlocksetEntries = string.Format(
-                    @"SELECT ""Blockset"".""ID"" AS ""BlocksetID"", 0 AS ""Index"", ""Block"".""ID"" AS ""BlockID"" FROM ""Blockset"", ""Block"", ""{1}"" S WHERE ""Blockset"".""Fullhash"" = ""S"".""FileHash"" AND ""S"".""BlockHash"" = ""Block"".""Hash"" AND ""S"".""BlockSize"" = ""Block"".""Size"" AND ""Blockset"".""Length"" = ""S"".""BlockSize"" AND ""Blockset"".""Length"" <= {0} ",
-                    blocksize,
-                    m_tempsmalllist
-                    );
+                var selectBlocksetEntries = string.Format(@"
+                    SELECT 
+                        ""Blockset"".""ID"" AS ""BlocksetID"", 
+                        0 AS ""Index"", 
+                        ""Block"".""ID"" AS ""BlockID"" 
+                    FROM 
+                        ""Blockset"", 
+                        ""Block"", 
+                        ""{1}"" S 
+                    WHERE 
+                        ""Blockset"".""Fullhash"" = ""S"".""FileHash"" 
+                        AND ""S"".""BlockHash"" = ""Block"".""Hash"" 
+                        AND ""S"".""BlockSize"" = ""Block"".""Size"" 
+                        AND ""Blockset"".""Length"" = ""S"".""BlockSize""
+                        AND ""Blockset"".""Length"" <= {0} ",
+                    blocksize, m_tempsmalllist);
                     
                 var selectAllBlocksetEntries =
                     selectBlocklistBlocksetEntries +
                     @" UNION " +
                     selectBlocksetEntries;
                     
+                // TODO(danstahr): Add correct offset handling
                 var selectFiltered =
-                    @"SELECT DISTINCT ""H"".""BlocksetID"", ""H"".""Index"", ""H"".""BlockID"" FROM (" +
+                    @"SELECT DISTINCT ""H"".""BlocksetID"", ""H"".""Index"", ""H"".""BlockID"", -1 AS ""Offset"" FROM (" +
                     selectAllBlocksetEntries +
                     @") H WHERE (""H"".""BlocksetID"" || ':' || ""H"".""Index"") NOT IN (SELECT (""ExistingBlocksetEntries"".""BlocksetID"" || ':' || ""ExistingBlocksetEntries"".""Index"") FROM ""BlocksetEntry"" ""ExistingBlocksetEntries"" )";
                 
                 var insertBlocksetEntriesCommand =
-                    @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"") " + selectFiltered;
+                    @"INSERT INTO ""BlocksetEntry"" (""BlocksetID"", ""Index"", ""BlockID"", ""Offset"") " + selectFiltered;
 
                 try
                 {

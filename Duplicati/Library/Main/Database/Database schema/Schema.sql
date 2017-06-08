@@ -139,6 +139,7 @@ we use a table with option "WITHOUT ROWID"
 CREATE TABLE "BlocksetEntry" (
 	"BlocksetID" INTEGER NOT NULL,
 	"Index" INTEGER NOT NULL,
+	"Offset" INTEGER NOT NULL,
 	"BlockID" INTEGER NOT NULL,
 	CONSTRAINT "BlocksetEntry_PK_IdIndex" PRIMARY KEY ("BlocksetID", "Index")
 ) {#if sqlite_version >= 3.8.2} WITHOUT ROWID {#endif};
@@ -241,4 +242,4 @@ CREATE TABLE "Configuration" (
 	"Value" TEXT NOT NULL
 );
 
-INSERT INTO "Version" ("Version") VALUES (6);
+INSERT INTO "Version" ("Version") VALUES (7);

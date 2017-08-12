@@ -36,7 +36,6 @@ namespace Duplicati.Library.Utility
         private string m_path;
         private bool m_protect;
                 
-#if DEBUG
         //In debug mode, we track the creation of temporary files, and encode the generating method into the name
         private static object m_lock = new object();
         private static Dictionary<string, System.Diagnostics.StackTrace> m_fileTrace = new Dictionary<string, System.Diagnostics.StackTrace>();
@@ -72,13 +71,6 @@ namespace Duplicati.Library.Utility
                 m_fileTrace.Add(s, st);
             return s;            
         }
-        
-#else
-        private static string GenerateUniqueName()
-        {
-            return APPLICATION_PREFIX + Guid.NewGuid().ToString();
-        }
-#endif
 
         /// <summary>
         /// Gets all temporary files found in the current tempdir, that matches the application prefix

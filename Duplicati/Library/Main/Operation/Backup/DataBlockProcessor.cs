@@ -107,7 +107,6 @@ namespace Duplicati.Library.Main.Operation.Backup
                         // If we have collected data, merge all pending volumes into a single volume
                         if (blockvolume != null && blockvolume.SourceSize > 0)
                         {
-                            blockvolume.Close();
                             await self.SpillPickup.WriteAsync(new VolumeUploadRequest(blockvolume, true));
                         }
                     }

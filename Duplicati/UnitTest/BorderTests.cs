@@ -219,7 +219,7 @@ namespace Duplicati.UnitTest
                 //Console.WriteLine(string.Join(Environment.NewLine, r.Files.Select(x => x.Path)));
             }
 
-            var data = new byte[filenames.Select(x => x.Value).Max()];
+            /*var data = new byte[filenames.Select(x => x.Value).Max()];
             new Random().NextBytes(data);
             foreach(var k in filenames)
                 File.WriteAllBytes(Path.Combine(DATAFOLDER, "b" + k.Key), data.Take(k.Value).ToArray());
@@ -309,7 +309,7 @@ namespace Duplicati.UnitTest
                     var r = c.Restore(new string[] { Path.Combine(DATAFOLDER, "a") + "*" });
                     Assert.AreEqual(filenames.Count, r.FilesRestored);
                 }
-            }
+            }*/
         }
     }
 }

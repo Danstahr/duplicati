@@ -165,7 +165,7 @@ namespace Duplicati.Library.Utility
             if (disposing)
                 GC.SuppressFinalize(this);
                 
-            /*try
+            try
             {
                 if (!m_protect && m_path != null && System.IO.File.Exists(m_path))
                     System.IO.File.Delete(m_path);
@@ -173,7 +173,7 @@ namespace Duplicati.Library.Utility
             }
             catch
             {
-            }*/
+            }
         }
         
         #region IDisposable Members
